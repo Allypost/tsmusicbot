@@ -15,6 +15,7 @@ use tokio::sync::mpsc;
 use tokio::time::{sleep, timeout, Duration};
 use tsclientlib;
 use tsproto_packets::packets::{AudioData, CodecType, OutAudio, OutPacket};
+use which::which;
 
 #[derive(Debug, Deserialize)]
 struct Config {
@@ -237,21 +238,13 @@ async fn main() -> Result<()> {
 }
 
 async fn real_main() -> Result<()> {
-    if let Err(why) = Command::new("ffmpeg")
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn()
-    {
-        log::error!("Unable to execute ffmpeg: {}", why);
+    if which("ffmpeg").is_err() {
+        log::error!("Unable to find ffmpeg");
         exit(-1);
     };
 
-    if let Err(why) = Command::new("youtube-dl")
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn()
-    {
-        log::error!("Unable to execute youtube-dl: {}", why);
+    if which("youtube-dl").is_err() {
+        log::error!("Unable to find youtube-dl");
         exit(-1);
     };
 

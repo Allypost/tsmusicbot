@@ -50,10 +50,7 @@ fn sanitize(s: &str) -> String {
     s.chars()
         .filter(|c| {
             c.is_alphanumeric()
-                || [
-                    ' ', '.', ' ', '=', '\t', ',', '?', '!', ':', '&', '/', '_',
-                ]
-                .contains(c)
+                || [' ', '.', ' ', '=', '\t', ',', '?', '!', ':', '&', '/', '_'].contains(c)
         })
         .collect()
 }

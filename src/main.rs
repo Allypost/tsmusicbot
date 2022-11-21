@@ -1,21 +1,21 @@
+extern crate audiopus;
+extern crate byteorder;
+extern crate serde;
+extern crate serde_json;
+
+use std::collections::VecDeque;
+use std::process::{exit, Command, Stdio};
+
 use anyhow::{bail, Result};
 use byteorder::{BigEndian, ReadBytesExt};
 use futures::prelude::*;
 use log::{error, info, trace};
 use serde::Deserialize;
-use std::collections::VecDeque;
-use std::process::{exit, Command, Stdio};
 use tokio::sync::mpsc;
 use tokio::time::{sleep, timeout, Duration};
-
 use tsclientlib::events::Event;
 use tsclientlib::{Connection, DisconnectOptions, Identity, StreamItem};
 use tsproto_packets::packets::{AudioData, CodecType, OutAudio, OutPacket};
-
-extern crate audiopus;
-extern crate byteorder;
-extern crate serde;
-extern crate serde_json;
 
 #[derive(Debug, Deserialize)]
 struct Config {

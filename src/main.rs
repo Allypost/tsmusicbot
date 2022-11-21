@@ -6,7 +6,7 @@ extern crate serde_json;
 use std::collections::VecDeque;
 use std::process::{exit, Command, Stdio};
 
-use anyhow::{bail, Result};
+use anyhow::{bail, Error, Result};
 use byteorder::{BigEndian, ReadBytesExt};
 use futures::prelude::*;
 use log;
@@ -232,6 +232,14 @@ async fn play_file(
     cmd_recv.close();
 }
 
+fn read_config() -> Result<Config> {
+    let config_file = std::fs::File::open("config.json")?;
+    match serde_json::from_reader(config_file) {
+        Ok(config) => Ok(config),
+        Err(e) => Err(Error::new(e)),
+    }
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     real_main().await
@@ -248,15 +256,7 @@ async fn real_main() -> Result<()> {
         exit(-1);
     };
 
-    let config_file = match std::fs::File::open("config.json") {
-        Ok(id) => id,
-        Err(why) => {
-            log::error!("Unable to open configuration file: {}", why);
-            exit(-1);
-        }
-    };
-
-    let config_json: Config = match serde_json::from_reader(config_file) {
+    let config_json: Config = match read_config() {
         Ok(cfg) => cfg,
         Err(why) => {
             log::error!("Failed to parse config: {}", why);

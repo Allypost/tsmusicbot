@@ -9,12 +9,11 @@ use std::process::{exit, Command, Stdio};
 use anyhow::{bail, Result};
 use byteorder::{BigEndian, ReadBytesExt};
 use futures::prelude::*;
-use log::{error, info, trace};
+use log;
 use serde::Deserialize;
 use tokio::sync::mpsc;
 use tokio::time::{sleep, timeout, Duration};
-use tsclientlib::events::Event;
-use tsclientlib::{Connection, DisconnectOptions, Identity, StreamItem};
+use tsclientlib;
 use tsproto_packets::packets::{AudioData, CodecType, OutAudio, OutPacket};
 
 #[derive(Debug, Deserialize)]
@@ -75,24 +74,22 @@ fn parse_command(msg: &str) -> Action {
 
     if split_vec[0] == "!volume" {
         let amount = split_vec[1].parse::<u32>();
-        match amount {
-            Err(_) => {
-                return Action::None;
-            }
+        return match amount {
+            Err(_) => Action::None,
             Ok(num) => {
                 let modifier: f32 = num.max(0).min(100) as f32 / 100_f32;
-                return Action::ChangeVolume { modifier };
+                Action::ChangeVolume { modifier }
             }
         };
     }
 
     if split_vec[0] == "!yt" {
-        trace!("MSG: {}", split_vec[1]);
+        log::trace!("MSG: {}", split_vec[1]);
         return Action::PlayAudio(split_vec[1].to_string());
     }
 
     if split_vec[0] == "!brki" {
-        trace!("MSG: {}", split_vec[1]);
+        log::trace!("MSG: {}", split_vec[1]);
         return Action::PlayNukedAudio(split_vec[1].to_string());
     }
 
@@ -120,7 +117,7 @@ async fn play_file(
     {
         Err(why) => {
             if let Err(e) = pkt_send.send(AudioPacket::None).await {
-                error!("Status packet sending error: {}", e);
+                log::error!("Status packet sending error: {}", e);
             }
             panic!("couldn't spawn youtube-dl: {}", why);
         }
@@ -135,9 +132,9 @@ async fn play_file(
     let url = match ytdl_stdout.split('\n').nth(1) {
         Some(s) => s,
         None => {
-            error!("Missing audio stream in {}", link);
+            log::error!("Missing audio stream in {}", link);
             if let Err(e) = pkt_send.send(AudioPacket::None).await {
-                error!("Status packet sending error: {}", e);
+                log::error!("Status packet sending error: {}", e);
                 return;
             }
             return;
@@ -213,9 +210,9 @@ async fn play_file(
         });
 
         if let Err(e) = pkt_send.send(AudioPacket::Payload(packet)).await {
-            error!("Audio packet sending error: {}", e);
+            log::error!("Audio packet sending error: {}", e);
             if let Err(e) = pkt_send.send(AudioPacket::None).await {
-                error!("Status packet sending error: {}", e);
+                log::error!("Status packet sending error: {}", e);
                 return;
             }
             break;
@@ -226,9 +223,9 @@ async fn play_file(
         sleep(usec_sleep).await;
     }
 
-    info!("Cleanup...");
+    log::info!("Cleanup...");
     if let Err(e) = pkt_send.send(AudioPacket::None).await {
-        error!("Status packet sending error: {}", e);
+        log::error!("Status packet sending error: {}", e);
         return;
     }
     cmd_recv.close();
@@ -245,7 +242,7 @@ async fn real_main() -> Result<()> {
         .stderr(Stdio::null())
         .spawn()
     {
-        error!("Unable to execute ffmpeg: {}", why);
+        log::error!("Unable to execute ffmpeg: {}", why);
         exit(-1);
     };
 
@@ -254,14 +251,14 @@ async fn real_main() -> Result<()> {
         .stderr(Stdio::null())
         .spawn()
     {
-        error!("Unable to execute youtube-dl: {}", why);
+        log::error!("Unable to execute youtube-dl: {}", why);
         exit(-1);
     };
 
     let config_file = match std::fs::File::open("config.json") {
         Ok(id) => id,
         Err(why) => {
-            error!("Unable to open configuration file: {}", why);
+            log::error!("Unable to open configuration file: {}", why);
             exit(-1);
         }
     };
@@ -269,22 +266,22 @@ async fn real_main() -> Result<()> {
     let config_json: Config = match serde_json::from_reader(config_file) {
         Ok(cfg) => cfg,
         Err(why) => {
-            error!("Failed to parse config: {}", why);
+            log::error!("Failed to parse config: {}", why);
             exit(-1);
         }
     };
 
-    let con_config = Connection::build(config_json.host)
+    let con_config = tsclientlib::Connection::build(config_json.host)
         .name(config_json.name)
         .password(config_json.password)
         .log_commands(false)
         .log_packets(false)
         .log_udp_packets(false);
 
-    let id = match Identity::new_from_str(&config_json.id) {
+    let id = match tsclientlib::Identity::new_from_str(&config_json.id) {
         Ok(id) => id,
         Err(why) => {
-            error!("Invalid teamspeak3 identity string: {}", why);
+            log::error!("Invalid teamspeak3 identity string: {:?}", why);
             exit(-1);
         }
     };
@@ -294,13 +291,13 @@ async fn real_main() -> Result<()> {
     let mut init_con = match con_config.connect() {
         Ok(con) => con,
         Err(why) => {
-            error!("Unable to connect: {}", why);
+            log::error!("Unable to connect: {:?}", why);
             exit(-1);
         }
     };
     let r = init_con
         .events()
-        .try_filter(|e| future::ready(matches!(e, StreamItem::BookEvents(_))))
+        .try_filter(|e| future::ready(matches!(e, tsclientlib::StreamItem::BookEvents(_))))
         .next()
         .await;
     if let Some(r) = r {
@@ -317,16 +314,16 @@ async fn real_main() -> Result<()> {
     loop {
         let events = init_con.events().try_for_each(|e| async {
             match e {
-                StreamItem::BookEvents(msg_vec) => {
+                tsclientlib::StreamItem::BookEvents(msg_vec) => {
                     for msg in msg_vec {
                         match msg {
-                            Event::Message {
+                            tsclientlib::events::Event::Message {
                                 invoker: _,
                                 target: _,
                                 message,
                             } => {
                                 if let Err(e) = status_send.send(parse_command(&message)).await {
-                                    error!("Status packet sending error: {}", e);
+                                    log::error!("Status packet sending error: {}", e);
                                 }
                             }
 
@@ -348,7 +345,7 @@ async fn real_main() -> Result<()> {
                     Some(action) => {
                         match action {
                             Action::PlayAudio(link) | Action::PlayNukedAudio(link) => {
-                                trace!("RECV");
+                                log::trace!("RECV");
                                 if !playing{
                                     playing = true;
                                     let audio_task_pkt_send = pkt_send.clone();
@@ -387,7 +384,7 @@ async fn real_main() -> Result<()> {
 
                            AudioPacket::Payload(pkt) =>{
                     if let Err(e) = init_con.send_audio(pkt) {
-                            error!("Audio packet sending error: {}", e);
+                            log::error!("Audio packet sending error: {:?}", e);
                             break;
                     }},
                             AudioPacket::None => {
@@ -415,14 +412,14 @@ async fn real_main() -> Result<()> {
             _ = tokio::signal::ctrl_c() => { break; }
             r = events => {
                         r?;
-                        init_con.disconnect(DisconnectOptions::new())?;
+                        init_con.disconnect(tsclientlib::DisconnectOptions::new())?;
                         bail!("Disconnected");
                   }
         };
     }
 
     // Disconnect
-    init_con.disconnect(DisconnectOptions::new())?;
+    init_con.disconnect(tsclientlib::DisconnectOptions::new())?;
 
     Ok(())
 }
